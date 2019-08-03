@@ -52,7 +52,7 @@ class Node:
             if self.is_last:
                 return p if p else b""
             if p:
-                return p + b" | " + self.translated
+                return p + b"|" + self.translated
             else:
                 return self.translated
         return None
@@ -161,8 +161,7 @@ class BashFS(pyfuse3.Operations):
         path = self._get_node(inode).make_path()
         l.debug("open: %r", path)
         file_handle = next(self._file_generator)
-        proc = await trio.open_process(path.decode(),
-                                       shell=True,
+        proc = await trio.open_process(["bash", "-c", path.decode()],
                                        stdout=subprocess.PIPE,
                                        stdin=subprocess.PIPE)
         self._proc_map[file_handle] = proc
