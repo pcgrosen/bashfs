@@ -9,6 +9,9 @@ from itertools import count
 
 l = logging.getLogger("bashfs.bashfs")
 
+BASHFS_ESCAPE = b"!"
+BASHFS_RUN = b"run"
+
 class Node:
     def __init__(self, parent, name, num, is_root=False):
         self.is_root = is_root
@@ -22,15 +25,36 @@ class Node:
         else:
             self.parent = self
         self.name = name
+        self.translated = self.translate(name)
+        self.is_last = name == BASHFS_RUN
         self.children = {}
+
+    @staticmethod
+    def translate(encoded):
+        if encoded is None:
+            return None
+        out = ""
+        iterator = iter(encoded)
+        for c in iterator:
+            if c == ord(b"!"):
+                try:
+                    n = next(iterator)
+                except StopIteration:
+                    raise pyfuse3.FUSEError(errno.ENOENT)
+                out += chr(n ^ 0x40)
+            else:
+                out += chr(c)
+        return out.encode("ascii")
 
     def make_path(self):
         if not self.is_root:
             p = self.parent.make_path()
+            if self.is_last:
+                return p if p else b""
             if p:
-                return p + " | " + self.name
+                return p + b" | " + self.translated
             else:
-                return self.name
+                return self.translated
         return None
 
     def __repr__(self):
@@ -71,8 +95,6 @@ class BashFS(pyfuse3.Operations):
             return inode_p
         if name == b"..":
             return inode_p.parent
-        if name in [b".xdg-volume-info", b".Trash", b".Trash-1000", b"autorun.inf"]:
-            raise pyfuse3.FUSEError(errno.ENOENT)
         node_p = self._get_node(inode_p)
         res_node = self._get_or_create_child_node(node_p, name)
         return await self.getattr(res_node.num, ctx=ctx)
@@ -87,7 +109,7 @@ class BashFS(pyfuse3.Operations):
         entry.generation = 0
         entry.entry_timeout = 300
         entry.attr_timeout = 300
-        if node.is_root:
+        if not node.is_last:
             entry.st_mode = 0o040777
         else:
             entry.st_mode = 0o100777
@@ -129,6 +151,10 @@ class BashFS(pyfuse3.Operations):
         return inode
 
     async def readdir(self, inode, off, token):
+        l.debug("readdir: inode=%r, off=%r, token=%r", inode, off, token)
+        if off < 1:
+            pyfuse3.readdir_reply(token, BASHFS_RUN,
+                                  await self.lookup(inode, BASHFS_RUN), 1)
         return None
 
     async def open(self, inode, flags, ctx):
