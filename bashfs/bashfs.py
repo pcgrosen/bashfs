@@ -64,6 +64,8 @@ class Node:
         self.children[child.name] = child
 
 class BashFS(pyfuse3.Operations):
+    enable_writeback_cache = False
+
     def __init__(self):
         super(pyfuse3.Operations, self).__init__()
         signal.signal(signal.SIGCHLD, signal.SIG_IGN)
@@ -107,8 +109,8 @@ class BashFS(pyfuse3.Operations):
         entry = pyfuse3.EntryAttributes()
         entry.st_ino = inode
         entry.generation = 0
-        entry.entry_timeout = 300
-        entry.attr_timeout = 300
+        entry.entry_timeout = 0
+        entry.attr_timeout = 0
         if not node.is_last:
             entry.st_mode = 0o040777
         else:
@@ -118,7 +120,10 @@ class BashFS(pyfuse3.Operations):
         entry.st_uid = 1000
         entry.st_gid = 1000
         entry.st_rdev = 0
-        entry.st_size = 4096
+        if not node.is_last:
+            entry.st_size = 4096
+        else:
+            entry.st_size = 0
 
         entry.st_blksize = 512
         entry.st_blocks = 1
@@ -157,7 +162,7 @@ class BashFS(pyfuse3.Operations):
                                   await self.lookup(inode, BASHFS_RUN), 1)
         return None
 
-    async def open(self, inode, flags, ctx):
+    async def open(self, inode, flags, ctx, file_info):
         path = self._get_node(inode).make_path()
         l.debug("open: %r", path)
         file_handle = next(self._file_generator)
@@ -165,11 +170,16 @@ class BashFS(pyfuse3.Operations):
                                        stdout=subprocess.PIPE,
                                        stdin=subprocess.PIPE)
         self._proc_map[file_handle] = proc
-        return file_handle
+        file_info["direct_io"] = 1
+        file_info["keep_cache"] = 0
+        return file_handle, file_info
 
     async def read(self, file_handle, offset, length):
         p = self._proc_map[file_handle]
-        return await p.stdout.receive_some(length)
+        l.debug("read: file_handle=%r, offset=%r, length=%r", file_handle, offset, length)
+        res = await p.stdout.receive_some(length)
+        l.debug("\t-> %r", res)
+        return res
 
     async def write(self, file_handle, offset, data):
         p = self._proc_map[file_handle]
@@ -178,6 +188,9 @@ class BashFS(pyfuse3.Operations):
     async def release(self, file_handle):
         if self._proc_map[file_handle].poll() is None:
             self._proc_map[file_handle].terminate()
+
+    async def flush(self, file_handle):
+        return True
 
     async def releasedir(self, inode):
         return None
