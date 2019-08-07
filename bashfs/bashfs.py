@@ -162,7 +162,7 @@ class BashFS(pyfuse3.Operations):
                                   await self.lookup(inode, BASHFS_RUN), 1)
         return None
 
-    async def open(self, inode, flags, ctx, file_info):
+    async def open(self, inode, flags, ctx):
         path = self._get_node(inode).make_path()
         l.debug("open: %r", path)
         file_handle = next(self._file_generator)
@@ -170,9 +170,8 @@ class BashFS(pyfuse3.Operations):
                                        stdout=subprocess.PIPE,
                                        stdin=subprocess.PIPE)
         self._proc_map[file_handle] = proc
-        file_info["direct_io"] = 1
-        file_info["keep_cache"] = 0
-        return file_handle, file_info
+        return pyfuse3.FileInfo(fh=file_handle, direct_io=True,
+                                keep_cache=False, nonseekable=True)
 
     async def read(self, file_handle, offset, length):
         p = self._proc_map[file_handle]
