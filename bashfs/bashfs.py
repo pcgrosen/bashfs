@@ -46,13 +46,13 @@ class Node:
                 out += chr(c)
         return out.encode("ascii")
 
-    def make_path(self):
+    def make_path(self, sep):
         if not self.is_root:
-            p = self.parent.make_path()
+            p = self.parent.make_path(sep)
             if self.is_last:
                 return p if p else b""
             if p:
-                return p + b"|" + self.translated
+                return p + sep + self.translated
             else:
                 return self.translated
         return None
@@ -66,9 +66,11 @@ class Node:
 class BashFS(pyfuse3.Operations):
     enable_writeback_cache = False
 
-    def __init__(self):
+    def __init__(self, argv_prefix=("bash", "-c"), separator=b"|"):
         super(pyfuse3.Operations, self).__init__()
         signal.signal(signal.SIGCHLD, signal.SIG_IGN)
+        self.argv_prefix = list(argv_prefix)
+        self.separator = separator
         self._inode_generator = count(start=10)
         self._file_generator = count(start=10)
         self._inode_map = {pyfuse3.ROOT_INODE: Node(None, None,
@@ -163,10 +165,10 @@ class BashFS(pyfuse3.Operations):
         return None
 
     async def open(self, inode, flags, ctx):
-        path = self._get_node(inode).make_path()
+        path = self._get_node(inode).make_path(self.separator)
         l.debug("open: %r", path)
         file_handle = next(self._file_generator)
-        proc = await trio.open_process(["bash", "-c", path.decode()],
+        proc = await trio.open_process(self.argv_prefix + [path.decode()],
                                        stdout=subprocess.PIPE,
                                        stdin=subprocess.PIPE)
         self._proc_map[file_handle] = proc
