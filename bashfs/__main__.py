@@ -17,7 +17,7 @@ def parse_args():
 
     parser.add_argument("--argv-prefix", action="append",
                         help="The argv array that preceeds the filesystem path."
-                        "\nFor example, `--argv-prefix bash --argv-prefix -c`"
+                        "\nFor example, `--argv-prefix=bash --argv-prefix=-c`"
                         "\nis equivalent to the default.")
 
     parser.add_argument("--separator", default="|",
